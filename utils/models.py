@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-llm = ChatOpenAI(model="gpt-3.5-turbo")
+llm = ChatOpenAI(model="gpt-4o-mini")
 
 prompt = ChatPromptTemplate.from_template(
     """
