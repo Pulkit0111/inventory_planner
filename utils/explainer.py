@@ -1,6 +1,6 @@
 import csv
 from langchain_core.prompts import ChatPromptTemplate
-from models import llm
+from .models import llm
 
 CSV_PATH = "data/inventory.csv"
 

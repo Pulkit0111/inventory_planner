@@ -26,7 +26,6 @@ def build_inventory_qa_chain():
         | llm
         | StrOutputParser()
     )
-    
-inventory_qa_chain = build_inventory_qa_chain()
 
+inventory_qa_chain = build_inventory_qa_chain()
 
