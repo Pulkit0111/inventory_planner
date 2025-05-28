@@ -4,3 +4,5 @@ langchain-openai
 python-dotenv
 openai
 psycopg2-binary
+sqlalchemy
+pyodbc

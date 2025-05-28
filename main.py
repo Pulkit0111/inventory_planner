@@ -9,11 +9,7 @@ def setup_database():
     # Load environment variables
     load_dotenv()
     
-    # Check if database file exists
-    # db_path = "data/retailware.db"
-    db_path = "postgresql://neondb_owner:npg_XGOPds3E8HAw@ep-wild-silence-a8syvnc1-pooler.eastus2.azure.neon.tech/neondb?sslmode=require"
-    # if not os.path.exists(db_path):
-    #     raise FileNotFoundError(f"Database file not found at {db_path}")
+    db_path = os.getenv("DB_PATH")
     
     # Create LangChain SQLDatabase object
     db = SQLDatabase.from_uri(db_path)
@@ -22,7 +18,7 @@ def setup_database():
     llm = OpenAI(model="gpt-4o-mini", temperature=0)
     
     # Create the SQLDatabaseChain with verbose output
-    return SQLDatabaseChain.from_llm(llm, db, verbose=True)
+    return SQLDatabaseChain.from_llm(llm, db)
 
 def main():
     """Main function to run the inventory chat interface."""
