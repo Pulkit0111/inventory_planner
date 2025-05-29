@@ -1,61 +1,74 @@
 from langchain_community.utilities import SQLDatabase
 from langchain_experimental.sql import SQLDatabaseChain
-from langchain_openai import OpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 import os
+import re
 
-def setup_database():
-    """Initialize the database connection and chain."""
-    # Load environment variables
-    load_dotenv()
-    
-    db_path = os.getenv("DB_PATH")
-    
-    # Create LangChain SQLDatabase object
-    db = SQLDatabase.from_uri(db_path)
-    
-    # Connect to OpenAI LLM with temperature 0 for deterministic output
-    llm = OpenAI(model="gpt-4o-mini", temperature=0)
-    
-    # Create the SQLDatabaseChain with verbose output
-    return SQLDatabaseChain.from_llm(llm, db)
+load_dotenv()
 
-def main():
-    """Main function to run the inventory chat interface."""
-    try:
-        # Setup the database chain
-        db_chain = setup_database()
-        
-        print("\n📦 Welcome to Inventory Chat Assistant!")
-        print("Ask questions about your inventory in natural language.")
-        print("Type 'exit', 'quit', 'bye', or 'stop' to end the session.")
-        print("--------------------------------")
-        
-        while True:
-            question = input("\nYou: ").strip()
-            
-            if question.lower() in ["exit", "quit", "bye", "stop"]:
-                print("\n👋 Thank you for using Inventory Chat Assistant!")
-                break
-                
-            if not question:
-                print("Please enter a question.")
-                continue
-                
-            try:
-                response = db_chain.invoke(question)
-                print("\nInventory:", response["result"])
-                print("--------------------------------")
-            except Exception as e:
-                print(f"\n⚠️ Error: {str(e)}")
-                print("Please try rephrasing your question.")
-                
-    except Exception as e:
-        print(f"\n❌ Error initializing the application: {str(e)}")
-        print("Please make sure:")
-        print("1. Your .env file contains the OPENAI_API_KEY")
-        print("2. The database file exists at data/retailware.db")
-        print("3. You have all required dependencies installed")
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+db = SQLDatabase.from_uri(os.getenv("DB_PATH"))
 
-if __name__ == "__main__":
-    main()
+# Fetch the schema of the database to provide the context for the LLM
+schema_info = db.get_table_info()
+
+# prompt to generate only the sql query
+prompt = ChatPromptTemplate.from_template("""
+You are an expert SQL generator. Given a user's question and schema info, write only the SQL query with no explanation.
+
+SCHEMA:
+{schema}
+
+QUESTION:
+{question}
+
+SQL Query:
+""")
+
+# prompt to generate the explanation from the sql query and the result
+response_prompt = ChatPromptTemplate.from_template("""
+You are a helpful assistant. Here is a SQL query and its output. Write a clear natural final response with the answer to the question with proper explanation.
+
+SQL QUERY:
+{query}
+
+RESULT:
+{result}
+
+EXPLANATION:
+""")
+
+def generate_sql(question: str) -> str:
+    formatted_prompt = prompt.format(schema=schema_info, question=question)
+    sql_response = llm.invoke(formatted_prompt)
+    raw_sql = sql_response.content.strip()
+    # Remove Markdown SQL code block if present
+    cleaned_sql = re.sub(r"^```sql\s*|```$", "", raw_sql, flags=re.IGNORECASE).strip()
+    return cleaned_sql
+
+
+def run_sql(query):
+    return db.run(query)
+
+def generate_explanation(query, result):
+    formatted = response_prompt.format(query=query, result=result)
+    return llm.invoke(formatted).content.strip()
+
+while True:
+    print("SQL BOT: Hi, I'm your SQL assistant. How can I help you today?")
+    question = input("You: ")
+    if question.lower() in ["exit", "quit", "bye", "stop"]:
+        print("SQL BOT: Goodbye!")
+        break
+    
+    sql = generate_sql(question)
+    print("SQL BOT: Generated SQL:", sql, "\n")
+
+    data = run_sql(sql)
+    print("SQL BOT: Raw Result:", data, "\n")
+
+    final_answer = generate_explanation(sql, data)
+    print("SQL BOT: Final Answer:", final_answer, "\n")
+
