@@ -9,7 +9,8 @@ from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
 from dotenv import load_dotenv
 from sqlalchemy import inspect
-from langchain.chains import LLMChain
+# from langchain.chains import LLMChain
+from langchain_core.output_parsers import StrOutputParser
 import os
 import re
 
@@ -117,11 +118,12 @@ Write ONLY the SQL query, with no explanation or code fences.
 """)
 
 # Wrap in an LLMChain
-sql_chain = LLMChain(
-    llm=llm,
-    prompt=sql_prompt,
-    # verbose=True
-)
+# sql_chain = LLMChain(
+#     llm=llm,
+#     prompt=sql_prompt,
+#     # verbose=True
+# )
+sql_chain = sql_prompt | llm | StrOutputParser()
 
 # # Test retrieval + SQL generation
 # question = "Give me the list of top 5 products that have a stock level below 10"
@@ -146,9 +148,10 @@ def generate_sql(question: str) -> str:
     Converts a natural language question into a pure SQL query using the schema.
     Generates only the SQL query with no explanation.
     """
-    docs = retriever.get_relevant_documents(question)
+    # docs = retriever.get_relevant_documents(question)
+    docs = retriever.invoke(question)
     schemas = "\n\n".join(d.page_content for d in docs)
-    raw = sql_chain.invoke({"schemas": schemas, "question": question})["text"]
+    raw = sql_chain.invoke({"schemas": schemas, "question": question})
     return re.sub(r"^```sql\s*|```$", "", raw, flags=re.IGNORECASE).strip()
 # ---------------------------------------------------------------------------------------------
 # --------------Retrieving the schema of the tables and generating the sql query---------------
@@ -172,12 +175,13 @@ RESULT:
 Answer:
 """)
 
-# Wrap it in an LLMChain
-explain_chain = LLMChain(
-    llm=llm,
-    prompt=explanation_prompt,
-    # verbose=True
-)
+# # Wrap it in an LLMChain
+# explain_chain = LLMChain(
+#     llm=llm,
+#     prompt=explanation_prompt,
+#     # verbose=True
+# )
+explain_chain = explanation_prompt | llm | StrOutputParser()
 
 # # Test it
 # # Pick a question and generate SQL
@@ -201,7 +205,7 @@ def sql_result_to_answer(sql_query: str) -> str:
     a natural‐language answer explaining the results.
     """
     result = db.run(sql_query)
-    return explain_chain.invoke({"query": sql_query, "result": result})["text"]
+    return explain_chain.invoke({"query": sql_query, "result": result})
 # ---------------------------------------------------------------------------------------------
 # --------------Execute the SQL and generate a natural‐language explanation--------------------
 # ---------------------------------------------------------------------------------------------
@@ -256,4 +260,3 @@ while True:
 # ---------------------------------------------------------------------------------------------
 # ----------------------------------RAG Chatbot------------------------------------------------
 # ---------------------------------------------------------------------------------------------
-
