@@ -26,30 +26,109 @@ inspector = inspect(engine)
 # ---------------------------------------------------------------------------------------------
 # --------------Getting the Schema of all the tables, chunking and embedding them--------------
 # ---------------------------------------------------------------------------------------------
-def get_table_schema(table_name: str):
+# def get_table_schema(table_name: str):
+#     """
+#     - Uses SQLAlchemy inspector to get column metadata (DB-agnostic).
+#     - Uses TOP for SQL Server, LIMIT otherwise, to grab sample rows.
+#     """
+#     try:
+#         # Columns via inspector
+#         cols_info = inspector.get_columns(table_name)
+#         parsed_columns = [
+#             {
+#                 "column_name": col["name"],
+#                 "data_type": str(col["type"]),
+#                 "nullable": col["nullable"],
+#                 "default": col.get("default"),
+#             }
+#             for col in cols_info
+#         ]
+
+#         # Sample data: SQL Server needs TOP
+#         if engine.dialect.name.lower() in ("mssql", "microsoft sql server"):
+#             sample = db.run(f"SELECT TOP 3 * FROM {table_name}")
+#         else:
+#             sample = db.run(f"SELECT * FROM {table_name} LIMIT 3")
+
+#         return {
+#             "table_name": table_name,
+#             "columns": parsed_columns,
+#             "sample_data": sample
+#         }
+
+#     except Exception as e:
+#         print(f"Warning: Error getting schema for {table_name}: {e}")
+#         return None
+
+    
+# # Get detailed schema information for all tables
+# schema_docs = []
+# for table in db.get_usable_table_names():
+#     if table.startswith('_xlnm'):  # Skip Excel filter tables
+#         continue
+
+#     info = get_table_schema(table)
+#     if not info:
+#         continue
+
+#     # format columns
+#     cols_text = "\n".join(
+#         f"- {col['column_name']} ({col['data_type']}, nullable={col['nullable']})"
+#         for col in info["columns"]
+#     )
+
+#     # format sample rows (limit to 2)
+#     samples = info["sample_data"][:2]
+#     sample_text = "\n".join(str(row) for row in samples)
+
+#     content = (
+#         f"Table: {table}\n\n"
+#         f"Columns:\n{cols_text}\n\n"
+#         f"Sample Rows:\n{sample_text}"
+#     )
+
+#     schema_docs.append(Document(page_content=content, metadata={"table": table}))
+    
+# # Embed & index
+# vector_index = FAISS.from_documents(schema_docs, embedding_model)
+
+# # Persist the FAISS index to disk so you don't rebuild it every run
+# vector_index.save_local("faiss_schema_index")
+def get_table_schema(table_name):
     """
-    - Uses SQLAlchemy inspector to get column metadata (DB-agnostic).
-    - Uses TOP for SQL Server, LIMIT otherwise, to grab sample rows.
+    This function gets information about a database table:
+    - The columns and their details (name, type, nullable, default)
+    - A few sample rows from the table
+    
+    It works for different databases by adjusting the sample query.
     """
     try:
-        # Columns via inspector
+        # Get column information using the inspector
         cols_info = inspector.get_columns(table_name)
-        parsed_columns = [
-            {
+        
+        # Create an empty list to store column details
+        parsed_columns = []
+        
+        # Loop through each column info dictionary
+        for col in cols_info:
+            # Create a simple dictionary with the details we want
+            col_details = {
                 "column_name": col["name"],
                 "data_type": str(col["type"]),
                 "nullable": col["nullable"],
                 "default": col.get("default"),
             }
-            for col in cols_info
-        ]
+            # Add this dictionary to our list
+            parsed_columns.append(col_details)
 
-        # Sample data: SQL Server needs TOP
+        # Get sample rows from the table
+        # SQL Server uses 'TOP', others use 'LIMIT'
         if engine.dialect.name.lower() in ("mssql", "microsoft sql server"):
             sample = db.run(f"SELECT TOP 3 * FROM {table_name}")
         else:
             sample = db.run(f"SELECT * FROM {table_name} LIMIT 3")
 
+        # Return all the collected info as a dictionary
         return {
             "table_name": table_name,
             "columns": parsed_columns,
@@ -57,42 +136,59 @@ def get_table_schema(table_name: str):
         }
 
     except Exception as e:
+        # If something goes wrong, print a warning and return None
         print(f"Warning: Error getting schema for {table_name}: {e}")
         return None
 
-    
-# Get detailed schema information for all tables
+# Create an empty list to hold schema documents
 schema_docs = []
-for table in db.get_usable_table_names():
-    if table.startswith('_xlnm'):  # Skip Excel filter tables
+
+# Get all usable table names from the database
+all_tables = db.get_usable_table_names()
+
+# Loop through each table name
+for table in all_tables:
+    # Skip tables that start with '_xlnm' (Excel filter tables)
+    if table.startswith('_xlnm'):
         continue
 
+    # Get schema info for the current table
     info = get_table_schema(table)
+    
+    # If info is None (error), skip this table
     if not info:
         continue
 
-    # format columns
-    cols_text = "\n".join(
-        f"- {col['column_name']} ({col['data_type']}, nullable={col['nullable']})"
-        for col in info["columns"]
-    )
+    # Format the columns into a readable string
+    cols_text = ""
+    for col in info["columns"]:
+        cols_text += f"- {col['column_name']} ({col['data_type']}, nullable={col['nullable']})\n"
 
-    # format sample rows (limit to 2)
+    # Take only the first 2 sample rows to keep it short
     samples = info["sample_data"][:2]
-    sample_text = "\n".join(str(row) for row in samples)
 
+    # Convert each sample row to string and join with new lines
+    sample_text = ""
+    for row in samples:
+        sample_text += str(row) + "\n"
+
+    # Combine all parts into one content string
     content = (
         f"Table: {table}\n\n"
-        f"Columns:\n{cols_text}\n\n"
+        f"Columns:\n{cols_text}\n"
         f"Sample Rows:\n{sample_text}"
     )
 
-    schema_docs.append(Document(page_content=content, metadata={"table": table}))
-    
-# Embed & index
+    # Create a Document object with the content and metadata
+    doc = Document(page_content=content, metadata={"table": table})
+
+    # Add this document to our list
+    schema_docs.append(doc)
+
+# Now, create a vector index from these documents using the embedding model
 vector_index = FAISS.from_documents(schema_docs, embedding_model)
 
-# Persist the FAISS index to disk so you don't rebuild it every run
+# Save the index locally so we don't have to rebuild it every time
 vector_index.save_local("faiss_schema_index")
 # ---------------------------------------------------------------------------------------------
 # --------------Getting the Schema of all the tables, chunking and embedding them--------------
@@ -143,7 +239,7 @@ sql_chain = sql_prompt | llm | StrOutputParser()
 
 # Generate SQL query tool
 @tool
-def generate_sql(question: str) -> str:
+def generate_sql(question):
     """
     Converts a natural language question into a pure SQL query using the schema.
     Generates only the SQL query with no explanation.
@@ -199,7 +295,7 @@ explain_chain = explanation_prompt | llm | StrOutputParser()
 
 # Natural language explanation tool
 @tool
-def sql_result_to_answer(sql_query: str) -> str:
+def sql_result_to_answer(sql_query):
     """
     Runs the given SQL query on the database, then generates
     a natural‐language answer explaining the results.
